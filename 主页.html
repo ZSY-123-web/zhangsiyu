@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <title>地图图标大战</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .shape {
+            position: absolute;
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        .map-icon1 {
+            /* 增大图标尺寸 */
+            width: 80px;
+            height: 80px;
+            background-image: url('https://img.icons8.com/color/48/000000/marker.png');
+            background-size: cover;
+        }
+
+        .map-icon2 {
+            /* 增大图标尺寸 */
+            width: 80px;
+            height: 80px;
+            background-image: url('https://img.icons8.com/color/48/000000/place-marker.png');
+            background-size: cover;
+        }
+
+        @keyframes flash {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.2);
+                opacity: 0.5;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .fighting {
+            animation: flash 0.3s infinite;
+        }
+
+        #error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: red;
+            color: white;
+            padding: 10px;
+            z-index: 1001;
+        }
+
+        #map-name {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 1002;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+<div id="game-container">
+    <div id="map"></div>
+    <div id="map-icon1" class="shape map-icon1"></div>
+    <div id="map-icon2" class="shape map-icon2"></div>
+    <div id="error-message" style="display: none;"></div>
+    <div id="map-name">地图名字</div>
+</div>
+<script>
+    const gameContainer = document.getElementById('game-container');
+    const mapIcon1 = document.getElementById('map-icon1');
+    const mapIcon2 = document.getElementById('map-icon2');
+    const errorMessage = document.getElementById('error-message');
+    const mapName = document.getElementById('map-name');
+
+    let mapIcon1X = 50;
+    let mapIcon1Y = 50;
+    let mapIcon2X = 200;
+    let mapIcon2Y = 200;
+
+    let isChasing = false;
+    let chasingInterval;
+
+    // 读取本地图片并转换为Base64编码
+    function readImageAsBase64(filePath, callback) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', filePath, true);
+        xhr.responseType = 'blob';
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                const reader = new FileReader();
+                reader.onloadend = function () {
+                    callback(reader.result);
+                };
+                reader.readAsDataURL(xhr.response);
+            } else {
+                errorMessage.textContent = `图片加载失败，状态码: ${xhr.status}`;
+                errorMessage.style.display = 'block';
+            }
+        };
+        xhr.onerror = function () {
+            errorMessage.textContent = '图片加载过程中出现错误';
+            errorMessage.style.display = 'block';
+        };
+        xhr.send();
+    }
+
+    // 修改为相对路径
+    const imagePath = '地图.jpg';
+
+    readImageAsBase64(imagePath, function (base64Image) {
+        // 初始化Leaflet地图
+        const map = L.map('map', {
+            zoomControl: true,
+            zoomSnap: 0.1,
+            crs: L.CRS.Simple,
+            zoomDelta: 0.5,
+            boxZoom: false,
+            doubleClickZoom: false,
+            scrollWheelZoom: false
+        });
+
+        // 假设地图图片的宽高
+        const imageWidth = 800;
+        const imageHeight = 600;
+
+        const bounds = [
+            [0, 0],
+            [imageHeight, imageWidth]
+        ];
+
+        // 添加自定义瓦片图层
+        const overlay = L.imageOverlay(base64Image, bounds).addTo(map);
+
+        overlay.on('error', function () {
+            errorMessage.textContent = '地图图片覆盖层加载失败';
+            errorMessage.style.display = 'block';
+        });
+
+        // 设置地图的初始显示范围
+        map.fitBounds(bounds);
+
+        // 调整地图的缩放级别，让地图显示合适大小
+        const initialZoom = 2;
+        map.setZoom(initialZoom);
+
+        // 鼠标滚轮缩放控制，仅在按下Ctrl键时生效
+        let isCtrlPressed = false;
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Control') {
+                isCtrlPressed = true;
+                map.scrollWheelZoom.enable();
+            }
+        });
+        document.addEventListener('keyup', function (e) {
+            if (e.key === 'Control') {
+                isCtrlPressed = false;
+                map.scrollWheelZoom.disable();
+            }
+        });
+
+        function updatePositions() {
+            // 确保图标在地图范围内
+            mapIcon1X = Math.max(0, Math.min(mapIcon1X, imageWidth - mapIcon1.offsetWidth));
+            mapIcon1Y = Math.max(0, Math.min(mapIcon1Y, imageHeight - mapIcon1.offsetHeight));
+            mapIcon2X = Math.max(0, Math.min(mapIcon2X, imageWidth - mapIcon2.offsetWidth));
+            mapIcon2Y = Math.max(0, Math.min(mapIcon2Y, imageHeight - mapIcon2.offsetHeight));
+
+            mapIcon1.style.left = mapIcon1X + 'px';
+            mapIcon1.style.top = mapIcon1Y + 'px';
+            mapIcon2.style.left = mapIcon2X + 'px';
+            mapIcon2.style.top = mapIcon2Y + 'px';
+
+            // 显示地图名字
+            if ((mapIcon1X >= 0 && mapIcon1X <= imageWidth && mapIcon1Y >= 0 && mapIcon1Y <= imageHeight) ||
+                (mapIcon2X >= 0 && mapIcon2X <= imageWidth && mapIcon2Y >= 0 && mapIcon2Y <= imageHeight)) {
+                mapName.style.display = 'block';
+            } else {
+                mapName.style.display = 'none';
+            }
+        }
+
+        function checkCollision() {
+            const icon1 = mapIcon1.getBoundingClientRect();
+            const icon2 = mapIcon2.getBoundingClientRect();
+            if (
+                icon1.left < icon2.right &&
+                icon1.right > icon2.left &&
+                icon1.top < icon2.bottom &&
+                icon1.bottom > icon2.top
+            ) {
+                // 碰撞特效
+                mapIcon1.classList.add('fighting');
+                mapIcon2.classList.add('fighting');
+                console.log('战斗开始！');
+                if (!isChasing) {
+                    isChasing = true;
+                    chasingInterval = setInterval(() => {
+                        const dx = mapIcon2X - mapIcon1X;
+                        const dy = mapIcon2Y - mapIcon1Y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance > 10) {
+                            mapIcon1X += dx / distance * 5;
+                            mapIcon1Y += dy / distance * 5;
+                        }
+                        updatePositions();
+                    }, 50);
+                }
+            } else {
+                mapIcon1.classList.remove('fighting');
+                mapIcon2.classList.remove('fighting');
+                if (isChasing) {
+                    isChasing = false;
+                    clearInterval(chasingInterval);
+                }
+            }
+        }
+
+        document.addEventListener('keydown', function (e) {
+            switch (e.key) {
+                case 'ArrowUp':
+                    mapIcon1Y -= 10;
+                    break;
+                case 'ArrowDown':
+                    mapIcon1Y += 10;
+                    break;
+                case 'ArrowLeft':
+                    mapIcon1X -= 10;
+                    break;
+                case 'ArrowRight':
+                    mapIcon1X += 10;
+                    break;
+            }
+            updatePositions();
+            checkCollision();
+        });
+
+        gameContainer.addEventListener('mousemove', function (e) {
+            if (!isCtrlPressed) {
+                const rect = gameContainer.getBoundingClientRect();
+                mapIcon2X = e.clientX - rect.left - mapIcon2.offsetWidth / 2;
+                mapIcon2Y = e.clientY - rect.top - mapIcon2.offsetHeight / 2;
+                updatePositions();
+                checkCollision();
+            }
+        });
+
+        updatePositions();
+    });
+</script>
+</body>
+
+</html>
